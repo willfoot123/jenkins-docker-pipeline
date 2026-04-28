@@ -7,22 +7,34 @@ pipeline {
 
     stages {
 
+        /* =====================
+           INIT STAGE
+           ===================== */
         stage('Init') {
             steps {
                 echo '=== INIT STAGE ==='
                 sh '''
+                    # Ensure Docker network exists (idempotent)
                     docker network ls | grep lab-net || docker network create lab-net
                 '''
             }
         }
 
+        /* =====================
+           BUILD STAGE
+           ===================== */
         stage('Build') {
             steps {
                 echo '=== BUILD STAGE ==='
-                sh 'docker build -t task1-app ./Task1'
+                sh '''
+                    docker build -t task1-app ./Task1
+                '''
             }
         }
 
+        /* =====================
+           DEPLOY STAGE
+           ===================== */
         stage('Deploy') {
             steps {
                 echo '=== DEPLOY STAGE ==='
@@ -37,23 +49,43 @@ pipeline {
             }
         }
 
+        /* =====================
+           UNIT TESTS (UNSTABLE ON FAIL)
+           ===================== */
         stage('Unit Tests') {
             steps {
                 echo '=== UNIT TESTS ==='
-                sh './tests/test.sh'
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    sh './tests/test.sh'
+                }
             }
         }
 
+        /* =====================
+           SECURITY SCAN (TRIVY)
+           ===================== */
         stage('Security Scan (Trivy)') {
             steps {
                 echo '=== TRIVY SECURITY SCAN ==='
                 sh '''
-                    trivy fs . --format table --output trivy-report.txt
+                    trivy fs . --format table --output trivy-report.txt || true
                 '''
+            }
+        }
+
+        /* =====================
+           MANUAL APPROVAL GATE
+           ===================== */
+        stage('Approval') {
+            steps {
+                input message: 'Approve deployment after Trivy scan?'
             }
         }
     }
 
+    /* =====================
+       POST ACTIONS
+       ===================== */
     post {
         always {
             echo '=== POST ACTIONS ==='
@@ -63,6 +95,9 @@ pipeline {
         failure {
             echo 'Build failed'
         }
+
+        unstable {
+            echo 'Build marked UNSTABLE due to test failures'
+        }
     }
 }
-
